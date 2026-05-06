@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import requests
 import plotly.express as px  # Moderní knihovna pro časové osy
 
-# --- 1. KONSTANTY A TEXTOVÁ DOKUMENTACE (Ochrana proti osekání) ---
+# --- 1. KONSTANTY A TEXTOVÁ DOKUMENTACE ---
 
 TEXT_ZAHON_1 = """
 ### 🏰 ZÁHON 1: Cuketové království
@@ -59,10 +59,9 @@ def create_gantt_chart(df):
     if df.empty:
         return None
     
+    # OPRAVA: Zde jsem odebral neplatné parametry 'start' a 'finish'
     fig = px.timeline(
         df, 
-        start="Datum_Vysadby", 
-        finish="Ocekavana_Sklizen", 
         x_start="Datum_Vysadby", 
         x_end="Ocekavana_Sklizen", 
         y="Plodina",
