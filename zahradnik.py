@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import requests
 
-# --- 1. POMOCNÉ FUNKCE ---
+# --- 1. POMOCNÉ FUNKCE (Vzdělávání: Komunikace s API) ---
 def get_weather_data(api_key, city):
     """Získává aktuální data a předpověď z OpenWeatherMap."""
     try:
@@ -26,8 +26,8 @@ def main():
     except Exception:
         df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Poznamka"])
 
-    # --- 3. INTELIGENTNÍ DATABÁZE PLODIN (Zde nastavuješ hodnoty) ---
-    # Klíč: Název, Hodnota: (Doba růstu ve dnech, Mrazový limit ve °C)
+    # --- 3. INTELIGENTNÍ DATABÁZE PLODIN (Vzdělávání: Vlastní limity pro každou plodinu) ---
+    # Zde definujeme růst (ve dnech) a mrazový limit (ve °C) pro každou plodinu zvlášť.
     PLANT_DATABASE = {
         "Ředkvičky": {"growth": 30, "frost": -2},
         "Špenát": {"growth": 45, "frost": -5},
@@ -51,7 +51,7 @@ def main():
 
     st.title("🌱 Zahradní Manažer Pro")
 
-    # --- 4. MRAZOVÝ RADAR ---
+    # --- 4. MRAZOVÝ RADAR (Předpověď na 3 dny) ---
     current_temp = None
     try:
         if "weather" in st.secrets:
@@ -68,27 +68,27 @@ def main():
                 forecast_risks = []
                 
                 if fore and fore.get("cod") == "200":
-                    for entry in fore['list'][:24]: # 72h předpověď
+                    for entry in fore['list'][:24]: # Prohledáváme 72 hodin (24 * 3h)
                         f_temp = entry['main']['temp']
                         f_time = datetime.strptime(entry['dt_txt'], '%Y-%m-%d %H:%M:%S')
                         for crop in active_crops:
-                            # Vytahujeme limit specifický pro plodinu z databáze
+                            # Kontrola mrazového limitu konkrétní plodiny
                             limit = PLANT_DATABASE.get(crop, {}).get("frost", 0)
                             if f_temp <= limit:
                                 forecast_risks.append({"crop": crop, "temp": f_temp, "time": f_time})
 
                 if forecast_risks:
                     worst = min(forecast_risks, key=lambda x: x['temp'])
-                    st.error(f"🚨 **MRAZOVÝ ALARM:** Pozor na {worst['time'].strftime('%d.%m. %H:%M')}. "
-                             f"Ohroženo: {', '.join(set(r['crop'] for r in forecast_risks))}")
+                    st.error(f"🚨 **MRAZOVÝ VAROVÁNÍ:** Pozor na {worst['time'].strftime('%d.%m. %H:%M')}. "
+                             f"Nejnižší teplota: {worst['temp']}°C. Ohroženo: {', '.join(set(r['crop'] for r in forecast_risks))}")
                 else:
-                    st.success(f"🌤️ Aktuálně {current_temp}°C. Všechny tvé plodiny jsou v bezpečí.")
+                    st.success(f"🌤️ V příštích 3 dnech mráz tvou aktuální výsadbu neohrozí.")
     except:
         pass
 
     st.divider()
 
-    # --- 5. ZOBRAZENÍ TABULEK (CORE OBSAH) ---
+    # --- 5. ZOBRAZENÍ TABULEK (Core obsah) ---
     column_cfg = {"Období": st.column_config.TextColumn("Období", width="small"), "Plodina": st.column_config.TextColumn("Plodina", width="medium"), "Poznámka": st.column_config.TextColumn("Poznámka", width="large")}
     tab1, tab2, tab3 = st.tabs(["📝 Plán & Realita", "🗺️ Mapa záhonů", "⚙️ Správa výsadby"])
 
@@ -108,6 +108,7 @@ def main():
         st.subheader("📊 Aktuální stav výsadby")
         if not df_real.empty:
             def style_rows(row):
+                # Dynamické barvení řádků podle mrazového limitu konkrétní plodiny
                 if current_temp is not None:
                     limit = PLANT_DATABASE.get(row['Plodina'], {}).get("frost", 0)
                     if current_temp <= limit: return ['background-color: #721c24; color: white'] * len(row)
@@ -136,6 +137,7 @@ def main():
 
     with tab3:
         st.header("⚙️ Správa dat")
+        # --- FORMULÁŘ PRO PŘIDÁVÁNÍ ---
         with st.form("planting_form", clear_on_submit=True):
             f_crop = st.selectbox("Plodina", list(PLANT_DATABASE.keys()))
             f_bed = st.selectbox("Záhon", BEDS)
@@ -143,21 +145,34 @@ def main():
             f_date = st.date_input("Datum výsadby", datetime.now())
             f_note = st.text_input("Poznámka")
             if st.form_submit_button("Uložit výsadbu"):
-                # AUTOMATICKÝ VÝPOČET SKLIZNĚ NA ZÁKLADĚ PLODINY
+                # Automatický výběr doby růstu z databáze
                 days_to_grow = PLANT_DATABASE[f_crop]["growth"]
                 sklizen = f_date + timedelta(days=days_to_grow)
                 
                 new_data = pd.DataFrame([{
-                    "Plodina": f_crop, 
-                    "Záhon": f_bed, 
-                    "Pozice": f_pos, 
+                    "Plodina": f_crop, "Záhon": f_bed, "Pozice": f_pos, 
                     "Datum_Vysadby": f_date.strftime('%Y-%m-%d'), 
                     "Ocekavana_Sklizen": sklizen.strftime('%Y-%m-%d'), 
                     "Poznamka": f_note
                 }])
                 save_df = df_real.drop(columns=['Zbývá dní']) if 'Zbývá dní' in df_real.columns else df_real
                 conn.update(data=pd.concat([save_df, new_data], ignore_index=True))
-                st.success(f"Zapsáno! Očekávaná sklizeň za {days_to_grow} dní."); st.rerun()
+                st.success(f"Zapsáno! Očekávaná sklizeň: {sklizen.strftime('%d.%m.%Y')}"); st.rerun()
+
+        # --- SEKCE MAZÁNÍ (Obnoveno z core kódu) ---
+        if not df_real.empty:
+            st.divider()
+            st.subheader("🗑️ Odstranit záznam")
+            del_list = [f"{i}: {row['Plodina']} ({row['Záhon']} - {row['Pozice']})" for i, row in df_real.iterrows()]
+            selected_del = st.selectbox("Vyber záznam ke smazání", del_list)
+            if st.button("Smazat vybraný záznam", type="primary"):
+                idx_to_del = int(selected_del.split(":")[0])
+                # Odstraníme řádek a pomocný sloupec před nahráním zpět
+                new_df = df_real.drop(df_real.index[idx_to_del])
+                if 'Zbývá dní' in new_df.columns:
+                    new_df = new_df.drop(columns=['Zbývá dní'])
+                conn.update(data=new_df)
+                st.success("Záznam byl úspěšně smazán!"); st.rerun()
 
 if __name__ == "__main__":
     main()
