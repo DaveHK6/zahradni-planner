@@ -31,7 +31,7 @@ def main():
     except:
         df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Posledni_Hnojeni", "Ucinnek_Hnojiva"])
 
-    # Databáze plodin (Vzdělávání: Zde definujeme dny růstu)
+    # Databáze plodin
     PLANT_DATABASE = {
         "Ředkvičky": {"growth": 30},
         "Jarní špenát": {"growth": 45},
@@ -86,7 +86,7 @@ def main():
         st.subheader("📊 Aktuální stav (Live data)")
         if not df_real.empty:
             df_display = df_real.copy()
-            # Formátování data pro uživatele
+            # OPRAVA: Formátování data na evropský standard DD.MM.YYYY
             for col in ['Datum_Vysadby', 'Ocekavana_Sklizen', 'Posledni_Hnojeni']:
                 if col in df_display.columns:
                     df_display[col] = df_display[col].dt.strftime('%d.%m.%Y').replace('NaT', '-')
@@ -110,28 +110,29 @@ def main():
     with tab3:
         st.header("⚙️ Správa")
         
-        # --- NOVÁ VÝSADBA (Skrolovací pozice) ---
         st.subheader("➕ Nová výsadba")
         with st.form("add_form"):
             c1, c2, c3 = st.columns(3)
             p_crop = c1.selectbox("Plodina", list(PLANT_DATABASE.keys()))
             p_bed = c2.selectbox("Záhon", ["Záhon 1", "Záhon 2"])
-            p_pos = c3.selectbox("Pozice", POSITIONS) # Skrolovací výběr pozice
+            p_pos = c3.selectbox("Pozice", POSITIONS)
             p_date = st.date_input("Datum výsadby", datetime.now())
             
             if st.form_submit_button("Zasadit"):
                 days = PLANT_DATABASE[p_crop]["growth"]
+                # Výpočet očekávané sklizně
                 expected = pd.Timestamp(p_date) + timedelta(days=days)
+                
                 new_row = pd.DataFrame([{
                     "Plodina": p_crop, "Záhon": p_bed, "Pozice": p_pos,
                     "Datum_Vysadby": pd.Timestamp(p_date), "Ocekavana_Sklizen": expected,
                     "Ucinnek_Hnojiva": 14
                 }])
+                
                 conn.update(worksheet=MAIN_SHEET, data=pd.concat([df_real, new_row], ignore_index=True))
                 st.success("Uloženo!"); st.rerun()
 
         st.divider()
-        # --- HNOJENÍ A MAZÁNÍ ---
         if not df_real.empty:
             st.subheader("🧪 Údržba")
             target_idx = st.selectbox("Vyber plodinu", df_real.index, 
@@ -151,7 +152,12 @@ def main():
         st.header("📂 Archiv")
         try:
             df_archive = conn.read(worksheet=ARCHIVE_SHEET, ttl=0)
-            st.dataframe(df_archive, use_container_width=True, hide_index=True)
+            if not df_archive.empty:
+                # I v archivu sjednotíme formát pro přehlednost
+                for col in df_archive.columns:
+                    if 'Datum' in col:
+                        df_archive[col] = pd.to_datetime(df_archive[col]).dt.strftime('%d.%m.%Y')
+                st.dataframe(df_archive, use_container_width=True, hide_index=True)
         except:
             st.info("Archiv je prázdný.")
 
