@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # --- KONFIGURACE ---
+# Tvůj odkaz na Google Tabulku
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1GVqF6BobYV7nuOPZzgBwi5sp3v8y5iV1QxhMRnIUs48/edit?gid=0#gid=0"
 
 GROWTH_PERIODS = {
@@ -20,13 +21,13 @@ def main():
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     try:
-        # ttl=0 zajistí, že při každém refreshnutí uvidíme nová data
+        # ttl=0 zajistí, že uvidíme změny hned po uložení
         df = conn.read(spreadsheet=SHEET_URL, ttl=0)
         df = df.dropna(how="all")
     except Exception:
         df = pd.DataFrame()
 
-    # Pojistka: Pokud v tabulce chybí sloupce, vytvoříme je v paměti
+    # Pojistka pro sloupce (aby aplikace nespadla, když je tabulka prázdná)
     required_columns = ["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Poznamka"]
     for col in required_columns:
         if col not in df.columns:
@@ -62,6 +63,7 @@ def main():
                 for s in range(1, 4):
                     p = f"{r}{s}"
                     with cols[s-1]:
+                        # Hledáme poslední plodinu na dané pozici
                         match = df[(df["Záhon"] == z_name) & (df["Pozice"] == p)]
                         if not match.empty and match.iloc[-1]["Plodina"]:
                             st.caption(f"📍 {p}")
@@ -70,7 +72,7 @@ def main():
                             st.caption(f"📍 {p}")
                             st.code("volno")
 
-    # --- 4. FORMULÁŘ A HISTORIE ---
+    # --- 4. FORMULÁŘ PRO ZÁPIS A HISTORIE ---
     st.divider()
     col_form, col_hist = st.columns([1, 1.2])
 
@@ -85,9 +87,11 @@ def main():
             f_note = st.text_input("Poznámka")
             
             if st.form_submit_button("🚀 Zapsat do Cloudu"):
+                # Výpočet sklizně
                 dny = GROWTH_PERIODS.get(f_crop, 30)
                 sklizen = f_date + timedelta(days=dny)
                 
+                # Nová data
                 new_row = pd.DataFrame([{
                     "Plodina": f_crop, "Záhon": f_zahon, "Pozice": f_pos, 
                     "Datum_Vysadby": f_date.strftime('%Y-%m-%d'), 
@@ -95,21 +99,30 @@ def main():
                     "Poznamka": f_note
                 }])
                 
+                # Spojení a odeslání
                 updated_df = pd.concat([df, new_row], ignore_index=True)
-                conn.update(spreadsheet=SHEET_URL, data=updated_df)
-                st.success("Synchronizováno s Google Sheets!")
-                st.rerun()
+                try:
+                    conn.update(spreadsheet=SHEET_URL, data=updated_df)
+                    st.success("Zapsáno! Obnovuji aplikaci...")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Chyba při zápisu: {e}")
+                    st.info("💡 Tip: Nastav v Google Sheets sdílení pro 'EDITOR'!")
 
     with col_hist:
-        st.subheader("📖 Správa dat a historie")
+        st.subheader("📖 Správa historie")
         if not df.empty:
-            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="cloud_editor")
+            # Editor umožňující mazat a měnit řádky
+            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="history_editor")
             if st.button("💾 Uložit změny v historii"):
-                conn.update(spreadsheet=SHEET_URL, data=edited_df)
-                st.success("Změny uloženy!")
-                st.rerun()
+                try:
+                    conn.update(spreadsheet=SHEET_URL, data=edited_df)
+                    st.success("Tabulka v Google Sheets aktualizována!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Chyba při ukládání: {e}")
         else:
-            st.info("Zatím žádná data v Google Sheets.")
+            st.info("Zatím nejsou k dispozici žádná data.")
 
 if __name__ == "__main__":
     main()
