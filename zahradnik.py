@@ -9,58 +9,65 @@ def main():
     # --- 1. PŘIPOJENÍ A NAČTENÍ DAT ---
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # Načteme data a okamžitě vyčistíme prázdné řádky
         df = conn.read(ttl=0).dropna(how="all")
     except Exception as e:
         st.error("Chyba připojení k Google Sheets.")
         st.exception(e)
         return
 
-    # --- 2. KONFIGURACE A LOGIKA VÝPOČTŮ ---
+    # --- 2. KONFIGURACE A LOGIKA ---
     GROWTH = {"Ředkvičky": 30, "Špenát": 45, "Cukety": 60, "Salát": 50, "Česnek": 240, "Rajčata": 80}
     BEDS = ["Záhon 1", "Záhon 2"]
     ROWS = list("ABCDEF")
     COLS = [1, 2, 3]
 
-    # Zajištění, aby df nebyl None
     if df is None:
         df = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen"])
 
-    # Výpočty provádíme pouze, pokud máme data
     if not df.empty:
-        # Bezpečný převod na datum - errors='coerce' změní špatná data na NaT (Not a Time)
         df['Datum_Vysadby'] = pd.to_datetime(df['Datum_Vysadby'], errors='coerce').dt.date
         df['Ocekavana_Sklizen'] = pd.to_datetime(df['Ocekavana_Sklizen'], errors='coerce').dt.date
-        
-        # Odstraníme řádky, kde se nepodařilo datum převést (prevence chyb)
         df = df.dropna(subset=['Datum_Vysadby', 'Ocekavana_Sklizen'])
-        
         dnes = datetime.now().date()
-        # Výpočet zbývajících dnů jako celé číslo
         df['Zbývá dní'] = df['Ocekavana_Sklizen'].apply(lambda x: (x - dnes).days if pd.notnull(x) else 0)
 
+    # --- HLAVNÍ NADPIS A ÚVODNÍ PŘEHLED ---
     st.title("🌱 Zahradní Manažer Pro")
+    
+    if not df.empty:
+        # Výpočet rychlých metrik pro úvod
+        aktualne_zasazeno = len(df)
+        ke_sklizni = len(df[df['Zbývá dní'] <= 7])
+        
+        # Zobrazení metrik v pěkných boxech
+        m1, m2 = st.columns(2)
+        m1.metric("Celkem zasazeno", f"{aktualne_zasazeno} ks")
+        m2.metric("Sklizeň do týdne", f"{ke_sklizni} ks", delta_color="inverse")
+        
+        st.write("### 📋 Hlavní přehledová tabulka")
+        # Definice barev pro úvodní tabulku
+        def color_skli(val):
+            try:
+                v = int(val)
+                if v < 0: return 'background-color: #ff4b4b; color: white'
+                if v <= 7: return 'background-color: #ffa500; color: black'
+                return ''
+            except: return ''
+        
+        st.dataframe(df.style.applymap(color_skli, subset=['Zbývá dní']), use_container_width=True)
+        st.divider() # Oddělovač mezi úvodem a zbytkem aplikace
 
     # --- 3. ROZHRANÍ (TABS) ---
-    t1, t2, t3 = st.tabs(["📊 Přehled & Sklizeň", "🗺️ Vizuální mapa", "⚙️ Správa dat"])
+    t1, t2, t3 = st.tabs(["📊 Detailní statistiky", "🗺️ Vizuální mapa", "⚙️ Správa dat"])
 
-    # TAB 1: PŘEHLED (Tady byla chyba)
+    # TAB 1: DETAILNÍ STATISTIKY
     with t1:
-        st.subheader("Aktuální stav osevního plánu")
+        st.subheader("Podrobný rozpis sklizní")
         if not df.empty:
-            # Definice barvy textu
-            def color_skli(val):
-                try:
-                    v = int(val)
-                    if v < 0: return 'color: #ff4b4b; font-weight: bold'
-                    if v <= 7: return 'color: #ffa500; font-weight: bold'
-                    return 'color: #28a745'
-                except: return None
-            
-            # Zobrazení stylizované tabulky
-            st.dataframe(df.style.map(color_skli, subset=['Zbývá dní']), use_container_width=True)
+            st.write("Zde můžete sledovat časovou osu vašich rostlin.")
+            st.table(df[['Plodina', 'Záhon', 'Ocekavana_Sklizen', 'Zbývá dní']].sort_values('Zbývá dní'))
         else:
-            st.info("V tabulce zatím nejsou žádná platná data. Přidej výsadbu v záložce Správa.")
+            st.info("Zatím žádná data k zobrazení.")
 
     # TAB 2: VIZUÁLNÍ MAPA
     with t2:
@@ -97,7 +104,6 @@ def main():
                         "Datum_Vysadby": f_date.strftime('%Y-%m-%d'), 
                         "Ocekavana_Sklizen": sklizen.strftime('%Y-%m-%d')
                     }])
-                    # Odstraníme pomocný sloupec před uložením
                     save_df = df.drop(columns=['Zbývá dní']) if 'Zbývá dní' in df.columns else df
                     final_df = pd.concat([save_df, new_row], ignore_index=True)
                     conn.update(data=final_df)
