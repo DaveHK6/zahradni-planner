@@ -13,7 +13,7 @@ def main():
     except Exception:
         df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Poznamka"])
 
-    # --- 2. KONFIGURACE ---
+    # --- 2. KONFIGURACE DAT ---
     GROWTH = {"Ředkvičky": 30, "Špenát": 45, "Cukety": 60, "Salát": 50, "Česnek": 240, "Rajčata": 80, "Fazole": 65, "Pak Choi": 40}
     BEDS = ["Záhon 1", "Záhon 2"]
     ROWS = list("ABCDEF")
@@ -27,52 +27,62 @@ def main():
 
     st.title("🌱 Zahradní Manažer Pro")
 
-    # --- 3. ROZDĚLENÍ DO LISTŮ ---
+    # --- 3. KONFIGURACE ZALAMOVÁNÍ TEXTU (FIX) ---
+    # Tato konfigurace zajistí, že sloupce s textem budou mít dost místa a nebudou se ořezávat
+    column_cfg = {
+        "Období": st.column_config.TextColumn("Období", width="small"),
+        "Plodina": st.column_config.TextColumn("Plodina", width="medium"),
+        "Poznámka": st.column_config.TextColumn("Poznámka", width="large", required=True),
+        "Poznamka": st.column_config.TextColumn("Poznamka", width="large")
+    }
+
+    # --- 4. ROZDĚLENÍ DO LISTŮ ---
     tab1, tab2, tab3 = st.tabs(["📝 Plán & Realita", "🗺️ Mapa záhonů", "⚙️ Správa výsadby"])
 
-    # --- LIST 1: Plán a Realita ---
+    # LIST 1: Plán a Realita
     with tab1:
         st.header("📝 Kompletní osevní plán (500 m n. m.)")
         
-        # Definice dat osevního plánu pro zobrazení
-        z1_full = [
+        z1_data = [
             {"Období": "Březen–Květen", "Plodina": "Ředkvičky + Jarní špenát", "Poznámka": "Vysévejte v polovině března. Přikryjte bílou netkanou textilií – vytvoří potřebné mikroklima."},
             {"Období": "Konec května–Září", "Plodina": "Cuketa Tondo di Piacenza", "Poznámka": "Do jamky lžičku Trichodermy. Nezapomeňte na PET lahve s Blumatem pro závlahu."},
             {"Období": "Září–Listopad", "Plodina": "Polníček / Zimní špenát", "Poznámka": "Po cuketách záhon nevynechejte. Plodiny vydrží mráz a v říjnu zajistí čerstvý salát."}
         ]
         
-        z2_full = [
+        z2_data = [
             {"Období": "Listopad–Červenec", "Plodina": "Zimní česnek", "Poznámka": "Sázíte na podzim. Přes zimu o něm nevíte, v červenci sklízíte vlastní palice."},
             {"Období": "Červenec–Září", "Plodina": "Rajčata + Keříčkové fazole", "Poznámka": "Do míst po česneku vzrostlé sazenice. Prolijte Razorminem pro start v horku."},
             {"Období": "Srpen–Říjen", "Plodina": "Asijské saláty (Pak Choi / Mizuna)", "Poznámka": "Rostou raketově mezi fazolemi. Nevadí jim chladnější zářijové noci na horách."}
         ]
 
         c1, c2 = st.columns(2)
-        
-        # Zobrazení pomocí st.data_editor (v režimu disabled), který lépe zvládá text
         with c1:
-            st.subheader("🟩 ZÁHON 1: Cuketové království")
-            st.dataframe(pd.DataFrame(z1_full), hide_index=True, use_container_width=True)
-            
+            st.subheader("🟩 ZÁHON 1")
+            st.dataframe(pd.DataFrame(z1_data), hide_index=True, column_config=column_cfg, use_container_width=True)
         with c2:
-            st.subheader("🟦 ZÁHON 2: Česnekovo-fazolová rotace")
-            st.dataframe(pd.DataFrame(z2_full), hide_index=True, use_container_width=True)
+            st.subheader("🟦 ZÁHON 2")
+            st.dataframe(pd.DataFrame(z2_data), hide_index=True, column_config=column_cfg, use_container_width=True)
         
         st.divider()
         st.subheader("📊 Aktuální stav výsadby")
         if not df_real.empty:
-            def color_style(val):
+            def style_rows(val):
                 try:
                     v = int(val)
                     if v < 0: return 'background-color: #ff4b4b; color: white'
                     if v <= 7: return 'background-color: #ffa500; color: black'
                     return ''
                 except: return ''
-            st.dataframe(df_real.style.map(color_style, subset=['Zbývá dní']), use_container_width=True)
+            
+            # Aplikace konfigurace i na tabulku s reálnými daty
+            st.dataframe(df_real.style.map(style_rows, subset=['Zbývá dní']), 
+                         column_config=column_cfg, 
+                         use_container_width=True, 
+                         hide_index=True)
         else:
-            st.info("Zatím nic nezasazeno.")
+            st.info("Zatím žádná data z Cloudu.")
 
-    # --- LIST 2: Mapa ---
+    # [Zbytek kódu pro Mapu a Správu zůstává stejný jako v předchozí verzi]
     with tab2:
         st.header("📍 Vizuální mapa")
         for bed in BEDS:
@@ -89,11 +99,9 @@ def main():
                             else:
                                 st.info(f"**{pos}**\n\nVolno")
 
-    # --- LIST 3: Správa ---
     with tab3:
         st.header("⚙️ Správa dat")
-        st.subheader("➕ Nová výsadba")
-        with st.form("planting_form"):
+        with st.form("planting_form", clear_on_submit=True):
             f_crop = st.selectbox("Plodina", list(GROWTH.keys()))
             f_bed = st.selectbox("Záhon", BEDS)
             f_pos = st.selectbox("Pozice", [f"{r}{c}" for r in ROWS for c in COLS])
@@ -104,7 +112,7 @@ def main():
                 new_data = pd.DataFrame([{"Plodina": f_crop, "Záhon": f_bed, "Pozice": f_pos, "Datum_Vysadby": f_date.strftime('%Y-%m-%d'), "Ocekavana_Sklizen": sklizen.strftime('%Y-%m-%d'), "Poznamka": f_note}])
                 save_df = df_real.drop(columns=['Zbývá dní']) if 'Zbývá dní' in df_real.columns else df_real
                 conn.update(data=pd.concat([save_df, new_data], ignore_index=True))
-                st.success("Uloženo!"); st.rerun()
+                st.success("Zapsáno!"); st.rerun()
 
         if not df_real.empty:
             st.divider()
@@ -112,7 +120,7 @@ def main():
             with col_edit:
                 st.subheader("📝 Upravit poznámku")
                 edit_list = [f"{i}: {row['Plodina']} ({row['Pozice']})" for i, row in df_real.iterrows()]
-                selected_edit = st.selectbox("Vyber plodinu", edit_list)
+                selected_edit = st.selectbox("Vyber k úpravě", edit_list)
                 idx_edit = int(selected_edit.split(":")[0])
                 new_note = st.text_input("Nová poznámka", value=df_real.at[idx_edit, 'Poznamka'])
                 if st.button("Aktualizovat"):
@@ -122,7 +130,7 @@ def main():
             with col_del:
                 st.subheader("🗑️ Smazat")
                 del_list = [f"{i}: {row['Plodina']} ({row['Pozice']})" for i, row in df_real.iterrows()]
-                selected_del = st.selectbox("Smazat plodinu", del_list)
+                selected_del = st.selectbox("Smazat", del_list)
                 if st.button("Smazat", type="primary"):
                     idx_del = int(selected_del.split(":")[0])
                     conn.update(data=df_real.drop(df_real.index[idx_del]).drop(columns=['Zbývá dní']))
