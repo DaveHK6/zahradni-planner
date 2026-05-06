@@ -21,7 +21,7 @@ def main():
     ARCHIVE_SHEET = "Archiv"
     conn = st.connection("gsheets", type=GSheetsConnection)
 
-    # Načtení dat (List 1) s vynucením evropského formátu
+    # Načtení hlavních dat
     try:
         df_real = conn.read(worksheet=MAIN_SHEET, ttl=0).dropna(how="all")
         for col in ['Datum_Vysadby', 'Ocekavana_Sklizen', 'Posledni_Hnojeni']:
@@ -30,7 +30,6 @@ def main():
     except:
         df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Posledni_Hnojeni", "Ucinnek_Hnojiva"])
 
-    # Databáze plodin s citlivostí na mráz
     PLANT_DATABASE = {
         "Ředkvičky": {"growth": 30, "sensitive": False},
         "Jarní špenát": {"growth": 45, "sensitive": False},
@@ -41,25 +40,19 @@ def main():
         "Pak Choi / Mizuna": {"growth": 40, "sensitive": False}
     }
 
-    # Seznam pozic
     POSITIONS = [f"{r}{c}" for r in list("ABCDEF") for c in [1, 2, 3]]
 
-    # --- 3. HLAVIČKA A POČASÍ + VAROVÁNÍ PŘED MRAZEM ---
+    # --- 3. HLAVIČKA A POČASÍ ---
     st.title("🌱 Zahradní Manažer Pro")
-    
     if "weather" in st.secrets:
         w = get_weather_data(st.secrets["weather"]["api_key"], st.secrets["weather"]["city"])
         if w and "main" in w:
             current_temp = w["main"]["temp"]
             st.metric(f"Aktuálně: {st.secrets['weather']['city']}", f"{current_temp} °C")
-
-            # Upozornění na mráz pro citlivé plodiny
             if current_temp < 5.0:
                 sensitive_planted = df_real[df_real["Plodina"].isin([k for k, v in PLANT_DATABASE.items() if v["sensitive"]])]
                 if not sensitive_planted.empty:
-                    st.error(f"⚠️ **POZOR NA MRÁZ!** Aktuální teplota je {current_temp}°C. Máš vysazeno: {', '.join(sensitive_planted['Plodina'].unique())}. Zakryj rostliny textilií!")
-                else:
-                    st.warning(f"❄️ Teplota klesla na {current_temp}°C. Pro aktuální plodiny to není nebezpečné, ale buď ve střehu.")
+                    st.error(f"⚠️ **POZOR NA MRÁZ!** Aktuální teplota je {current_temp}°C. Máš vysazeno: {', '.join(sensitive_planted['Plodina'].unique())}. Zakryj rostliny!")
 
     st.divider()
 
@@ -68,26 +61,10 @@ def main():
 
     with tab1:
         st.header("🏰 ZÁHON 1: Cuketové království")
-        st.write("Tento záhon je zaměřen na rychlou jarní vitamínovou bombu a následně na hlavní letní úrodu.")
-        st.markdown("""
-        | Období | Plodina | Poznámka k pěstování |
-        | :--- | :--- | :--- |
-        | Březen – Květen | Ředkvičky + Jarní špenát | Vysévejte v polovině března. Přikryjte bílou netkanou textilií – v 500 m n. m. jim vytvoří mikroklima. |
-        | Konec května – Září | Tykev cuketa Tondo di Piacenza | Po sklizni ředkviček vysaďte sazenice. Do každé jamky lžičku Trichodermy. Nezapomeňte na PET lahve s Blumatem. |
-        | Září – Listopad | Polníček / Zimní špenát | Po cuketách záhon nevynechejte. Tyto plodiny vydrží mráz a v říjnu z nich máte skvělý salát. |
-        """)
-
+        st.markdown("| Období | Plodina | Poznámka |\n| :--- | :--- | :--- |\n| Březen – Květen | Ředkvičky + Špenát | Vysévejte v březnu pod textilii. |")
+        
         st.header("🔄 ZÁHON 2: Česnekovo-fazolová rotace")
-        st.write("Tento záhon využívá fakt, že česnek uvolní místo v červenci, což otevírá prostor pro 'druhou směnu' letní zeleniny.")
-        st.markdown("""
-        | Období | Plodina | Poznámka k pěstování |
-        | :--- | :--- | :--- |
-        | Listopad – Červenec | Zimní česnek | Sázíte na podzim. Přes zimu o něm nevíte, v červenci sklízíte vlastní palice. |
-        | Červenec – Září | Sazenice rajčat + Keříčkové fazole | Do prázdných míst po česneku dejte už vzrostlé sazenice rajčat a do volných řádků vysejte fazole. |
-        | Srpen – Říjen | Asijské saláty (Pak Choi / Mizuna) | Vysejte mezi fazole. Rostou raketově a nevadí jim chladnější zářijové noci v horách. |
-        """)
-
-        st.info("**Tipy pro úspěch v 500 m n. m.:** Po česneku prolijte půdu Razorminem. Blumat adaptéry u rajčat jsou nutnost!")
+        st.markdown("| Období | Plodina | Poznámka |\n| :--- | :--- | :--- |\n| Listopad – Červenec | Zimní česnek | Sázíte na podzim. |")
         
         st.divider()
         st.subheader("📊 Aktuální stav (Live data)")
@@ -116,7 +93,7 @@ def main():
     with tab3:
         st.header("⚙️ Správa")
         
-        st.subheader("➕ Nová výsadba")
+        # Sekce pro přidání nové plodiny
         with st.form("add_form"):
             c1, c2, c3 = st.columns(3)
             p_crop = c1.selectbox("Plodina", list(PLANT_DATABASE.keys()))
@@ -133,35 +110,61 @@ def main():
                     "Ucinnek_Hnojiva": 14
                 }])
                 conn.update(worksheet=MAIN_SHEET, data=pd.concat([df_real, new_row], ignore_index=True))
-                st.success("Uloženo!"); st.rerun()
+                st.success("Zasazeno!"); st.rerun()
 
         st.divider()
+        
+        # Sekce Údržba s novou funkcí ARCHIVACE
         if not df_real.empty:
-            st.subheader("🧪 Údržba")
-            target_idx = st.selectbox("Vyber plodinu", df_real.index, 
+            st.subheader("🧪 Údržba a Sklizeň")
+            target_idx = st.selectbox("Vyber plodinu k akci", df_real.index, 
                                      format_func=lambda x: f"{df_real.loc[x, 'Plodina']} ({df_real.loc[x, 'Pozice']})")
             
-            cola, colb = st.columns(2)
-            if cola.button("💧 Zapsat hnojení"):
+            col_hnoj, col_skliz, col_smaz = st.columns(3)
+            
+            # 1. Hnojení
+            if col_hnoj.button("💧 Zapsat hnojení"):
                 df_real.at[target_idx, 'Posledni_Hnojeni'] = pd.Timestamp(datetime.now())
                 conn.update(worksheet=MAIN_SHEET, data=df_real)
                 st.success("Hnojeno!"); st.rerun()
             
-            if colb.button("🗑️ Smazat bez archivu"):
+            # 2. Sklizeň (Archivace)
+            if col_skliz.button("🧺 Sklidit do archivu"):
+                # Načtení archivu
+                try:
+                    df_archive = conn.read(worksheet=ARCHIVE_SHEET, ttl=0).dropna(how="all")
+                except:
+                    df_archive = pd.DataFrame()
+                
+                # Příprava řádku pro archiv
+                row_to_archive = df_real.loc[[target_idx]].copy()
+                row_to_archive['Datum_Sklizne'] = pd.Timestamp(datetime.now())
+                
+                # Update obou listů
+                new_archive = pd.concat([df_archive, row_to_archive], ignore_index=True)
+                conn.update(worksheet=ARCHIVE_SHEET, data=new_archive)
                 conn.update(worksheet=MAIN_SHEET, data=df_real.drop(target_idx))
-                st.warning("Smazáno."); st.rerun()
+                
+                st.balloons()
+                st.success("Sklizeno a uloženo do archivu!"); st.rerun()
+            
+            # 3. Smazání
+            if col_smaz.button("🗑️ Smazat (bez sklizně)"):
+                conn.update(worksheet=MAIN_SHEET, data=df_real.drop(target_idx))
+                st.warning("Odstraněno bez záznamu."); st.rerun()
 
     with tab4:
-        st.header("📂 Archiv")
+        st.header("📂 Archiv sklizní")
         try:
             df_archive = conn.read(worksheet=ARCHIVE_SHEET, ttl=0)
             if not df_archive.empty:
+                # Formátování dat pro zobrazení
                 for col in df_archive.columns:
-                    if 'Datum' in col:
-                        df_archive[col] = pd.to_datetime(df_archive[col], dayfirst=True).dt.strftime('%d.%m.%Y')
+                    if 'Datum' in col or 'Ocekavana' in col or 'Sklizne' in col:
+                        df_archive[col] = pd.to_datetime(df_archive[col], errors='coerce').dt.strftime('%d.%m.%Y')
                 st.dataframe(df_archive, use_container_width=True, hide_index=True)
         except:
-            st.info("Archiv je prázdný.")
+            st.info("Archiv je zatím prázdný. Sklidit můžeš v záložce Správa.")
 
 if __name__ == "__main__":
     main()
