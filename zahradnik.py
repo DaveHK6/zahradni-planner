@@ -4,9 +4,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import requests
 
-# --- 1. POMOCNÉ FUNKCE (Počasí a API) ---
+# --- 1. POMOCNÉ FUNKCE (Počasí) ---
 def get_weather_data(api_key, city):
-    """Získává data z OpenWeatherMap API."""
     try:
         curr_url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric&lang=cz"
         curr_res = requests.get(curr_url).json()
@@ -15,36 +14,31 @@ def get_weather_data(api_key, city):
         return None
 
 def main():
-    st.set_page_config(page_title="Záhon Planner Pro", layout="wide", page_icon="🌱")
+    st.set_page_config(page_title="Zahradní Manažer Pro", layout="wide", page_icon="🌱")
     
-    # --- 2. KONFIGURACE DAT ---
-    MAIN_SHEET = "List 1"  # Tvůj specifický název listu
-    ARCHIVE_SHEET = "Archiv"
-    
+    # --- 2. KONFIGURACE DAT (Respektujeme 'List 1') ---
+    MAIN_SHEET = "List 1"
     conn = st.connection("gsheets", type=GSheetsConnection)
 
-    # Načtení dat s ošetřením chyb
     try:
         df_real = conn.read(worksheet=MAIN_SHEET, ttl=0).dropna(how="all")
     except:
         df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Posledni_Hnojeni", "Ucinnek_Hnojiva"])
 
-    # Databáze konstant plodin
     PLANT_DATABASE = {
         "Ředkvičky": {"growth": 30, "frost": -2, "fert": 10},
         "Špenát": {"growth": 45, "frost": -5, "fert": 15},
         "Cukety": {"growth": 60, "frost": 5, "fert": 20},
         "Salát": {"growth": 50, "frost": 1, "fert": 14},
-        "Rajčata": {"growth": 80, "frost": 7, "fert": 14}
+        "Rajčata": {"growth": 80, "frost": 7, "fert": 14},
+        "Pak Choi": {"growth": 40, "frost": 2, "fert": 10}
     }
 
-    # Předzpracování dat pro výpočty
+    # Předzpracování dat
     if not df_real.empty:
-        df_real['Datum_Vysadby'] = pd.to_datetime(df_real['Datum_Vysadby'], errors='coerce').dt.date
-        df_real['Posledni_Hnojeni'] = pd.to_datetime(df_real['Posledni_Hnojeni'], errors='coerce').dt.date
-        df_real['Ocekavana_Sklizen'] = pd.to_datetime(df_real['Ocekavana_Sklizen'], errors='coerce').dt.date
-        dnes = datetime.now().date()
-        df_real['Dní do sklizně'] = df_real['Ocekavana_Sklizen'].apply(lambda x: (x - dnes).days if pd.notnull(x) else 0)
+        for col in ['Datum_Vysadby', 'Ocekavana_Sklizen', 'Posledni_Hnojeni']:
+            if col in df_real.columns:
+                df_real[col] = pd.to_datetime(df_real[col], errors='coerce').dt.date
 
     st.title("🌱 Zahradní Manažer Pro")
 
@@ -56,31 +50,60 @@ def main():
 
     st.divider()
 
-    # --- 4. HLAVNÍ ROZHRANÍ (TABY) ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Přehled výsadby", "🗺️ Mapa", "⚙️ Správa & Hnojení", "📂 Archiv"])
+    # --- 4. TABY ---
+    tab1, tab2, tab3 = st.tabs(["📝 Přehled výsadby", "🗺️ Mapa", "⚙️ Správa & Hnojení"])
 
-    # TAB 1: PŘEHLEDOVÁ TABULKA
     with tab1:
-        st.header("📝 Aktuální stav plodin")
+        # --- TVŮJ CORE TEXTOVÝ PŘEHLED (Statický obsah) ---
+        st.header("🏰 ZÁHON 1: Cuketové království")
+        st.write("Tento záhon je zaměřen na rychlou jarní vitamínovou bombu a následně na hlavní letní úrodu.")
+        
+        st.markdown("""
+        | Období | Plodina | Poznámka k pěstování |
+        | :--- | :--- | :--- |
+        | Březen – Květen | Ředkvičky + Jarní špenát | Vysévejte v polovině března. Přikryjte bílou netkanou textilií. |
+        | Konec května – Září | Tykev cuketa Tondo di Piacenza | Po sklizni ředkviček vysaďte sazenice. Použijte Trichodermu a Blumaty. |
+        | Září – Listopad | Polníček / Zimní špenát | Po cuketách záhon nevynechejte, vydrží i mráz. |
+        """)
+
+        st.header("🔄 ZÁHON 2: Česnekovo-fazolová rotace")
+        st.write("Využívá fakt, že česnek uvolní místo v červenci pro druhou směnu zeleniny.")
+
+        st.markdown("""
+        | Období | Plodina | Poznámka k pěstování |
+        | :--- | :--- | :--- |
+        | Listopad – Červenec | Zimní česnek | Sázíte na podzim, v červenci sklízíte vlastní palice. |
+        | Červenec – Září | Sazenice rajčat + Keříčkové fazole | Do prázdných míst po česneku dejte rajčata a fazole. |
+        | Srpen – Říjen | Asijské saláty (Pak Choi / Mizuna) | Vysejte mezi fazole, rostou raketově. |
+        """)
+
+        st.info("""
+        **Tipy pro úspěch v 500 m n. m.**
+        1. **Po sklizni česneku (Červenec):** Prolijte záhon Razorminem pro bleskový start rajčat a fazolí.
+        2. **Strategie pro rajčata:** Blumat adaptéry jsou nutností pro rychlé dozrání v září.
+        3. **Co dál?** Skvěle se daří i černé ředkvi nebo vodnici – prevence proti rýmě z hor!
+        
+        *Můj tip: Jednu kulatou cuketu nechte vyrůst v obří kouli, vydrží ve sklepě až do Vánoc!*
+        """)
+
+        st.divider()
+        
+        # --- DYNAMICKÁ TABULKA S DATY (Z List 1) ---
+        st.subheader("📊 Aktuální stav v záhonech (Live data)")
         if not df_real.empty:
             def highlight_fert(row):
-                """Logika barvení řádků podle hnojení."""
                 dnes = datetime.now().date()
-                last_fert = row['Posledni_Hnojeni'] if pd.notnull(row['Posledni_Hnojeni']) else row['Datum_Vysadby']
+                last = row['Posledni_Hnojeni'] if pd.notnull(row['Posledni_Hnojeni']) else row['Datum_Vysadby']
                 interval = row['Ucinnek_Hnojiva'] if pd.notnull(row['Ucinnek_Hnojiva']) and row['Ucinnek_Hnojiva'] > 0 else 14
-                
-                if pd.notnull(last_fert) and (dnes - last_fert).days >= interval:
+                if pd.notnull(last) and (dnes - last).days >= interval:
                     return ['background-color: #4b2e2e; color: white'] * len(row)
                 return [''] * len(row)
-
             st.dataframe(df_real.style.apply(highlight_fert, axis=1), use_container_width=True, hide_index=True)
-            st.info("💡 Hnědý řádek = Rostlina potřebuje hnojivo (vypršel interval).")
         else:
-            st.info("Žádné plodiny nenalezeny. Přidejte je v záložce Správa.")
+            st.info("Žádná živá data v tabulce. Přidej první plodinu v záložce Správa.")
 
-    # TAB 2: VIZUÁLNÍ MAPA
     with tab2:
-        st.header("🗺️ Mapa záhonů")
+        st.header("🗺️ Mapa")
         if not df_real.empty:
             for bed in ["Záhon 1", "Záhon 2"]:
                 with st.expander(bed, expanded=True):
@@ -94,42 +117,47 @@ def main():
                                     st.success(f"**{pos}**\n\n{match.iloc[-1]['Plodina']}")
                                 else:
                                     st.info(f"**{pos}**\n\n--")
-        else:
-            st.info("Zatím není co zobrazit na mapě.")
 
-    # TAB 3: SPRÁVA & HNOJENÍ
     with tab3:
-        st.header("⚙️ Správa zahrady")
-        
-        # FORMULÁŘ PRO HNOJENÍ
-        st.subheader("🧪 Zadat hnojení")
+        st.header("⚙️ Správa")
+        # --- SEKCE HNOJENÍ ---
+        st.subheader("🧪 Záznam hnojení")
         if not df_real.empty:
             with st.form("fert_form"):
-                idx = st.selectbox("Vyber plodinu", df_real.index, format_func=lambda x: f"{df_real.loc[x, 'Plodina']} ({df_real.loc[x, 'Pozice']})")
-                f_date = st.date_input("Datum hnojení", datetime.now())
-                f_days = st.number_input("Délka účinku (dny)", min_value=1, value=14)
+                idx_f = st.selectbox("Hnojit plodinu", df_real.index, format_func=lambda x: f"{df_real.loc[x, 'Plodina']} ({df_real.loc[x, 'Pozice']})")
+                f_date = st.date_input("Datum", datetime.now())
+                f_dur = st.number_input("Účinek (dny)", min_value=1, value=14)
                 if st.form_submit_button("Uložit hnojení"):
-                    df_real.at[idx, 'Posledni_Hnojeni'] = f_date
-                    df_real.at[idx, 'Ucinnek_Hnojiva'] = f_days
-                    conn.update(worksheet=MAIN_SHEET, data=df_real.drop(columns=['Dní do sklizně'], errors='ignore'))
-                    st.success("Hnojení zapsáno!"); st.rerun()
+                    df_real.at[idx_f, 'Posledni_Hnojeni'] = f_date
+                    df_real.at[idx_f, 'Ucinnek_Hnojiva'] = f_dur
+                    conn.update(worksheet=MAIN_SHEET, data=df_real)
+                    st.success("Hnojení uloženo!"); st.rerun()
 
         st.divider()
-
-        # FORMULÁŘ PRO NOVOU VÝSADBU
+        # --- SEKCE PŘIDÁVÁNÍ ---
         st.subheader("➕ Nová výsadba")
         with st.form("add_form"):
-            col1, col2, col3 = st.columns(3)
-            p_crop = col1.selectbox("Plodina", list(PLANT_DATABASE.keys()))
-            p_bed = col2.selectbox("Záhon", ["Záhon 1", "Záhon 2"])
-            p_pos = col3.text_input("Pozice (např. A1)")
+            c1, c2, c3 = st.columns(3)
+            p_crop = c1.selectbox("Plodina", list(PLANT_DATABASE.keys()))
+            p_bed = c2.selectbox("Záhon", ["Záhon 1", "Záhon 2"])
+            p_pos = c3.text_input("Pozice (A1-F3)")
             p_date = st.date_input("Datum výsadby", datetime.now())
             if st.form_submit_button("Zasadit"):
                 sklizen = p_date + timedelta(days=PLANT_DATABASE[p_crop]["growth"])
                 new_data = pd.DataFrame([{"Plodina": p_crop, "Záhon": p_bed, "Pozice": p_pos, "Datum_Vysadby": p_date, "Ocekavana_Sklizen": sklizen, "Ucinnek_Hnojiva": 14}])
-                updated_df = pd.concat([df_real.drop(columns=['Dní do sklizně'], errors='ignore'), new_data], ignore_index=True)
+                updated_df = pd.concat([df_real, new_data], ignore_index=True)
                 conn.update(worksheet=MAIN_SHEET, data=updated_df)
-                st.success("Plodina přidána!"); st.rerun()
+                st.success("Přidáno!"); st.rerun()
+
+        st.divider()
+        # --- SEKCE MAZÁNÍ ---
+        st.subheader("🗑️ Odstranit plodinu")
+        if not df_real.empty:
+            delete_idx = st.selectbox("Vyber plodinu k odstranění", df_real.index, format_func=lambda x: f"{df_real.loc[x, 'Plodina']} ({df_real.loc[x, 'Pozice']})")
+            if st.button("Definitivně smazat"):
+                new_df = df_real.drop(delete_idx)
+                conn.update(worksheet=MAIN_SHEET, data=new_df)
+                st.success("Odstraněno."); st.rerun()
 
 if __name__ == "__main__":
     main()
