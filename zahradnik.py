@@ -4,136 +4,132 @@ import pandas as pd
 from datetime import datetime, timedelta
 import requests
 
-# --- 1. POMOCNÉ FUNKCE (Počasí) ---
+# --- 1. POMOCNÉ FUNKCE (Počasí a API) ---
 def get_weather_data(api_key, city):
+    """Získává data z OpenWeatherMap API."""
     try:
         curr_url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric&lang=cz"
         curr_res = requests.get(curr_url).json()
-        fore_url = f"http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={api_key}&units=metric&lang=cz"
-        fore_res = requests.get(fore_url).json()
-        return curr_res, fore_res
+        return curr_res
     except:
-        return None, None
+        return None
 
 def main():
     st.set_page_config(page_title="Záhon Planner Pro", layout="wide", page_icon="🌱")
     
-    # --- 2. KONFIGURACE NÁZVŮ (Změněno na 'List 1' dle tvé tabulky) ---
-    # Tady jsme opravili ten nesoulad, který způsobil chybu na obrázku.
-    MAIN_SHEET_NAME = "List 1" 
-    ARCHIVE_SHEET_NAME = "Archiv"
-
+    # --- 2. KONFIGURACE DAT ---
+    MAIN_SHEET = "List 1"  # Tvůj specifický název listu
+    ARCHIVE_SHEET = "Archiv"
+    
     conn = st.connection("gsheets", type=GSheetsConnection)
 
-    # Bezpečné načtení hlavních dat z 'List 1'
+    # Načtení dat s ošetřením chyb
     try:
-        df_real = conn.read(worksheet=MAIN_SHEET_NAME, ttl=0).dropna(how="all")
-    except Exception:
-        st.warning(f"⚠️ Pozor: List s názvem '{MAIN_SHEET_NAME}' nebyl v tabulce nalezen.")
-        df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Posledni_Hnojeni", "Ucinnek_Hnojiva", "Poznamka"])
+        df_real = conn.read(worksheet=MAIN_SHEET, ttl=0).dropna(how="all")
+    except:
+        df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Posledni_Hnojeni", "Ucinnek_Hnojiva"])
 
-    # Bezpečné načtení archivu
-    try:
-        df_archive = conn.read(worksheet=ARCHIVE_SHEET_NAME, ttl=0).dropna(how="all")
-    except Exception:
-        df_archive = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Datum_Sklizne", "Poznamka"])
-
-    # --- 3. INTELIGENTNÍ DATABÁZE PLODIN ---
+    # Databáze konstant plodin
     PLANT_DATABASE = {
-        "Ředkvičky": {"growth": 30, "frost": -2, "def_fert": 10},
-        "Špenát": {"growth": 45, "frost": -5, "def_fert": 15},
-        "Cukety": {"growth": 60, "frost": 5, "def_fert": 20},
-        "Salát": {"growth": 50, "frost": 1, "def_fert": 14},
-        "Česnek": {"growth": 240, "frost": -10, "def_fert": 60},
-        "Rajčata": {"growth": 80, "frost": 7, "def_fert": 14},
-        "Fazole": {"growth": 65, "frost": 5, "def_fert": 21},
-        "Pak Choi": {"growth": 40, "frost": 2, "def_fert": 10}
+        "Ředkvičky": {"growth": 30, "frost": -2, "fert": 10},
+        "Špenát": {"growth": 45, "frost": -5, "fert": 15},
+        "Cukety": {"growth": 60, "frost": 5, "fert": 20},
+        "Salát": {"growth": 50, "frost": 1, "fert": 14},
+        "Rajčata": {"growth": 80, "frost": 7, "fert": 14}
     }
 
-    # Zpracování dat pro tabulku
+    # Předzpracování dat pro výpočty
     if not df_real.empty:
-        # Převedeme textová data na formát data, aby s nimi mohl Python počítat
-        for col in ['Datum_Vysadby', 'Ocekavana_Sklizen', 'Posledni_Hnojeni']:
-            if col in df_real.columns:
-                df_real[col] = pd.to_datetime(df_real[col], errors='coerce').dt.date
-        
+        df_real['Datum_Vysadby'] = pd.to_datetime(df_real['Datum_Vysadby'], errors='coerce').dt.date
+        df_real['Posledni_Hnojeni'] = pd.to_datetime(df_real['Posledni_Hnojeni'], errors='coerce').dt.date
+        df_real['Ocekavana_Sklizen'] = pd.to_datetime(df_real['Ocekavana_Sklizen'], errors='coerce').dt.date
         dnes = datetime.now().date()
-        if 'Ocekavana_Sklizen' in df_real.columns:
-            df_real['Zbývá dní'] = df_real['Ocekavana_Sklizen'].apply(lambda x: (x - dnes).days if pd.notnull(x) else 0)
+        df_real['Dní do sklizně'] = df_real['Ocekavana_Sklizen'].apply(lambda x: (x - dnes).days if pd.notnull(x) else 0)
 
     st.title("🌱 Zahradní Manažer Pro")
 
-    # --- 4. MRAZOVÝ RADAR (Nezávislý na chybě v tabulce) ---
-    current_temp = None
+    # --- 3. POČASÍ ---
     if "weather" in st.secrets:
-        api_key = st.secrets["weather"]["api_key"]
-        city = st.secrets["weather"]["city"]
-        curr, fore = get_weather_data(api_key, city)
-        
-        if curr and curr.get("cod") == 200:
-            current_temp = curr['main']['temp']
-            st.metric("Aktuálně Polánka", f"{current_temp} °C")
-            
-            # Pokud máme data o počasí i o rostlinách, vyhodnotíme riziko
-            if fore and fore.get("cod") == "200" and not df_real.empty:
-                forecast_risks = []
-                for entry in fore['list'][:40]:
-                    f_temp = entry['main']['temp']
-                    f_time = datetime.strptime(entry['dt_txt'], '%Y-%m-%d %H:%M:%S')
-                    for crop in df_real['Plodina'].unique():
-                        limit = PLANT_DATABASE.get(crop, {}).get("frost", 0)
-                        if f_temp <= limit:
-                            forecast_risks.append({"crop": crop, "temp": f_temp, "time": f_time})
-                
-                if forecast_risks:
-                    worst = min(forecast_risks, key=lambda x: x['temp'])
-                    st.error(f"🚨 **MRAZOVÁ VÝSTRAHA:** {worst['time'].strftime('%d.%m. %H:%M')} bude {worst['temp']}°C.")
-                else:
-                    st.success("🌤️ Předpověď na 5 dní je pro tvou výsadbu bezpečná.")
+        weather = get_weather_data(st.secrets["weather"]["api_key"], st.secrets["weather"]["city"])
+        if weather and weather.get("cod") == 200:
+            st.metric(f"Aktuálně: {st.secrets['weather']['city']}", f"{weather['main']['temp']} °C")
 
     st.divider()
 
-    # --- 5. TABY (Uživatelské rozhraní) ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Plán & Živiny", "🗺️ Mapa", "⚙️ Správa", "📂 Archiv"])
+    # --- 4. HLAVNÍ ROZHRANÍ (TABY) ---
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Přehled výsadby", "🗺️ Mapa", "⚙️ Správa & Hnojení", "📂 Archiv"])
 
+    # TAB 1: PŘEHLEDOVÁ TABULKA
     with tab1:
-        st.header("📝 Přehled výsadby")
+        st.header("📝 Aktuální stav plodin")
         if not df_real.empty:
-            def style_rows(row):
+            def highlight_fert(row):
+                """Logika barvení řádků podle hnojení."""
                 dnes = datetime.now().date()
-                # Výpočet živin
-                start_date = row['Posledni_Hnojeni'] if pd.notnull(row.get('Posledni_Hnojeni')) else row['Datum_Vysadby']
-                interval = row.get('Ucinnek_Hnojiva', 14) 
-                if pd.isna(interval) or interval <= 0: interval = 14
+                last_fert = row['Posledni_Hnojeni'] if pd.notnull(row['Posledni_Hnojeni']) else row['Datum_Vysadby']
+                interval = row['Ucinnek_Hnojiva'] if pd.notnull(row['Ucinnek_Hnojiva']) and row['Ucinnek_Hnojiva'] > 0 else 14
                 
-                if pd.notnull(start_date):
-                    next_fert = start_date + timedelta(days=int(interval))
-                    if dnes >= next_fert: return ['background-color: #4b2e2e; color: white'] * len(row)
-                
-                # Výpočet mrazu
-                if current_temp is not None:
-                    limit = PLANT_DATABASE.get(row['Plodina'], {}).get("frost", 0)
-                    if current_temp <= limit: return ['background-color: #721c24; color: white'] * len(row)
+                if pd.notnull(last_fert) and (dnes - last_fert).days >= interval:
+                    return ['background-color: #4b2e2e; color: white'] * len(row)
                 return [''] * len(row)
 
-            st.dataframe(df_real.style.apply(style_rows, axis=1), use_container_width=True, hide_index=True)
+            st.dataframe(df_real.style.apply(highlight_fert, axis=1), use_container_width=True, hide_index=True)
+            st.info("💡 Hnědý řádek = Rostlina potřebuje hnojivo (vypršel interval).")
         else:
-            st.info(f"Záhon v listu '{MAIN_SHEET_NAME}' je prázdný.")
+            st.info("Žádné plodiny nenalezeny. Přidejte je v záložce Správa.")
 
+    # TAB 2: VIZUÁLNÍ MAPA
+    with tab2:
+        st.header("🗺️ Mapa záhonů")
+        if not df_real.empty:
+            for bed in ["Záhon 1", "Záhon 2"]:
+                with st.expander(bed, expanded=True):
+                    for r in list("ABCDEF"):
+                        cols = st.columns(3)
+                        for i, c in enumerate([1, 2, 3]):
+                            pos = f"{r}{c}"
+                            match = df_real[(df_real["Záhon"] == bed) & (df_real["Pozice"] == pos)]
+                            with cols[i]:
+                                if not match.empty:
+                                    st.success(f"**{pos}**\n\n{match.iloc[-1]['Plodina']}")
+                                else:
+                                    st.info(f"**{pos}**\n\n--")
+        else:
+            st.info("Zatím není co zobrazit na mapě.")
+
+    # TAB 3: SPRÁVA & HNOJENÍ
     with tab3:
         st.header("⚙️ Správa zahrady")
-        with st.form("add_form", clear_on_submit=True):
-            st.subheader("➕ Nová plodina")
-            f_crop = st.selectbox("Plodina", list(PLANT_DATABASE.keys()))
-            f_bed = st.selectbox("Záhon", ["Záhon 1", "Záhon 2"])
-            f_pos = st.text_input("Pozice (např. A1)")
-            f_date = st.date_input("Datum výsadby", datetime.now())
-            if st.form_submit_button("Uložit do Google Sheets"):
-                sklizen = f_date + timedelta(days=PLANT_DATABASE[f_crop]["growth"])
-                new_row = pd.DataFrame([{"Plodina": f_crop, "Záhon": f_bed, "Pozice": f_pos, "Datum_Vysadby": f_date, "Ocekavana_Sklizen": sklizen, "Posledni_Hnojeni": None, "Ucinnek_Hnojiva": 0, "Poznamka": ""}])
-                # Zápis zpět do správného listu
-                conn.update(worksheet=MAIN_SHEET_NAME, data=pd.concat([df_real.drop(columns=['Zbývá dní'], errors='ignore'), new_row], ignore_index=True))
-                st.success("Zapsáno do 'List 1'!"); st.rerun()
+        
+        # FORMULÁŘ PRO HNOJENÍ
+        st.subheader("🧪 Zadat hnojení")
+        if not df_real.empty:
+            with st.form("fert_form"):
+                idx = st.selectbox("Vyber plodinu", df_real.index, format_func=lambda x: f"{df_real.loc[x, 'Plodina']} ({df_real.loc[x, 'Pozice']})")
+                f_date = st.date_input("Datum hnojení", datetime.now())
+                f_days = st.number_input("Délka účinku (dny)", min_value=1, value=14)
+                if st.form_submit_button("Uložit hnojení"):
+                    df_real.at[idx, 'Posledni_Hnojeni'] = f_date
+                    df_real.at[idx, 'Ucinnek_Hnojiva'] = f_days
+                    conn.update(worksheet=MAIN_SHEET, data=df_real.drop(columns=['Dní do sklizně'], errors='ignore'))
+                    st.success("Hnojení zapsáno!"); st.rerun()
+
+        st.divider()
+
+        # FORMULÁŘ PRO NOVOU VÝSADBU
+        st.subheader("➕ Nová výsadba")
+        with st.form("add_form"):
+            col1, col2, col3 = st.columns(3)
+            p_crop = col1.selectbox("Plodina", list(PLANT_DATABASE.keys()))
+            p_bed = col2.selectbox("Záhon", ["Záhon 1", "Záhon 2"])
+            p_pos = col3.text_input("Pozice (např. A1)")
+            p_date = st.date_input("Datum výsadby", datetime.now())
+            if st.form_submit_button("Zasadit"):
+                sklizen = p_date + timedelta(days=PLANT_DATABASE[p_crop]["growth"])
+                new_data = pd.DataFrame([{"Plodina": p_crop, "Záhon": p_bed, "Pozice": p_pos, "Datum_Vysadby": p_date, "Ocekavana_Sklizen": sklizen, "Ucinnek_Hnojiva": 14}])
+                updated_df = pd.concat([df_real.drop(columns=['Dní do sklizně'], errors='ignore'), new_data], ignore_index=True)
+                conn.update(worksheet=MAIN_SHEET, data=updated_df)
+                st.success("Plodina přidána!"); st.rerun()
 
 if __name__ == "__main__":
     main()
