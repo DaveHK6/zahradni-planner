@@ -16,28 +16,42 @@ def main():
     st.set_page_config(page_title="Záhon Planner Cloud", layout="wide")
     st.title("🌱 Cloudový Zahradní Plánovač")
 
+    # 1. PŘIPOJENÍ KE GOOGLE SHEETS
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     try:
-        # ttl=0 zajistí, že data budou vždy čerstvá
+        # ttl=0 zajistí, že při každém refreshnutí uvidíme nová data
         df = conn.read(spreadsheet=SHEET_URL, ttl=0)
         df = df.dropna(how="all")
     except Exception:
         df = pd.DataFrame()
 
-    # --- POJISTKA PRO CHYBĚJÍCÍ SLOUPCE ---
+    # Pojistka: Pokud v tabulce chybí sloupce, vytvoříme je v paměti
     required_columns = ["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Poznamka"]
     for col in required_columns:
         if col not in df.columns:
             df[col] = None
 
-    # --- OSEVNÍ PLÁN (Zobrazení zůstává stejné) ---
-    st.header("ZÁHON 1: Jarní vitaminy")
-    # ... (zde jsou tvé tabulky s osevním plánem) ...
+    # --- 2. INFORMATIVNÍ TABULKY (OSEVNÍ PLÁN) ---
+    st.header("ZÁHON 1: Jarní vitaminy a grilovací speciály")
+    data1 = [
+        ["Březen – Květen", "Ředkvičky + Špenát", "Vysévejte pod bílou netkanou textilii."],
+        ["Červen – Září", "Kulaté cukety (Tondo di Piacenza)", "Po ředkvičkách saďte sazenice."],
+        ["Září – Listopad", "Polníček / Zimní salát", "Zasejte po sklizni cuket."]
+    ]
+    st.table(pd.DataFrame(data1, columns=["Období", "Plodina", "Tip pro 500 m n. m."]))
 
-    # --- MŘÍŽKA ZÁHONŮ ---
+    st.header("ZÁHON 2: Zimní česnek a letní „druhá směna“")
+    data2 = [
+        ["Listopad – Červenec", "Zimní česnek", "Sází se hluboko (8–10 cm)."],
+        ["Červenec – Září", "Sazenice rajčat + Keříčkové fazole", "Razormin při výsadbě."],
+        ["Srpen – Říjen", "Vodnice / Černá ředkev", "Milují podzimní chlad."]
+    ]
+    st.table(pd.DataFrame(data2, columns=["Období", "Plodina", "Tip pro 500 m n. m."]))
+
+    # --- 3. KOMPAKTNÍ VIZUÁLNÍ MAPA ---
     st.divider()
-    st.subheader("🖼️ Aktuální osázení")
+    st.subheader("🖼️ Aktuální osázení (Mřížka 3x6)")
     z_tabs = st.tabs(["Záhon 1", "Záhon 2"])
     
     for i, tab in enumerate(z_tabs):
@@ -48,7 +62,6 @@ def main():
                 for s in range(1, 4):
                     p = f"{r}{s}"
                     with cols[s-1]:
-                        # Nyní už sloupec 'Záhon' a 'Pozice' zaručeně existují díky pojistce
                         match = df[(df["Záhon"] == z_name) & (df["Pozice"] == p)]
                         if not match.empty and match.iloc[-1]["Plodina"]:
                             st.caption(f"📍 {p}")
@@ -57,9 +70,46 @@ def main():
                             st.caption(f"📍 {p}")
                             st.code("volno")
 
-    # --- FORMULÁŘ PRO ZÁPIS ---
-    # ... (zbytek tvého kódu pro formulář a historii) ...
-    # (Při ukládání použij: conn.update(spreadsheet=SHEET_URL, data=updated_df))
+    # --- 4. FORMULÁŘ A HISTORIE ---
+    st.divider()
+    col_form, col_hist = st.columns([1, 1.2])
+
+    with col_form:
+        st.subheader("📝 Nový záznam")
+        with st.form("cloud_form", clear_on_submit=True):
+            f_crop = st.selectbox("Plodina", list(GROWTH_PERIODS.keys()) + ["Jiná..."])
+            f_zahon = st.selectbox("Záhon", ["Záhon 1", "Záhon 2"])
+            pozice_list = [f"{r}{s}" for r in ["A", "B", "C", "D", "E", "F"] for s in range(1, 4)]
+            f_pos = st.selectbox("Pozice", pozice_list)
+            f_date = st.date_input("Datum výsadby", datetime.now())
+            f_note = st.text_input("Poznámka")
+            
+            if st.form_submit_button("🚀 Zapsat do Cloudu"):
+                dny = GROWTH_PERIODS.get(f_crop, 30)
+                sklizen = f_date + timedelta(days=dny)
+                
+                new_row = pd.DataFrame([{
+                    "Plodina": f_crop, "Záhon": f_zahon, "Pozice": f_pos, 
+                    "Datum_Vysadby": f_date.strftime('%Y-%m-%d'), 
+                    "Ocekavana_Sklizen": sklizen.strftime('%Y-%m-%d'), 
+                    "Poznamka": f_note
+                }])
+                
+                updated_df = pd.concat([df, new_row], ignore_index=True)
+                conn.update(spreadsheet=SHEET_URL, data=updated_df)
+                st.success("Synchronizováno s Google Sheets!")
+                st.rerun()
+
+    with col_hist:
+        st.subheader("📖 Správa dat a historie")
+        if not df.empty:
+            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="cloud_editor")
+            if st.button("💾 Uložit změny v historii"):
+                conn.update(spreadsheet=SHEET_URL, data=edited_df)
+                st.success("Změny uloženy!")
+                st.rerun()
+        else:
+            st.info("Zatím žádná data v Google Sheets.")
 
 if __name__ == "__main__":
     main()
