@@ -21,11 +21,13 @@ def main():
     ARCHIVE_SHEET = "Archiv"
     conn = st.connection("gsheets", type=GSheetsConnection)
 
+    # Načtení dat s vynucením evropského pořadí dne a měsíce
     try:
         df_real = conn.read(worksheet=MAIN_SHEET, ttl=0).dropna(how="all")
         for col in ['Datum_Vysadby', 'Ocekavana_Sklizen', 'Posledni_Hnojeni']:
             if col in df_real.columns:
-                df_real[col] = pd.to_datetime(df_real[col], errors='coerce')
+                # KLÍČOVÁ OPRAVA: dayfirst=True zabrání prohazování dne a měsíce
+                df_real[col] = pd.to_datetime(df_real[col], dayfirst=True, errors='coerce')
     except:
         df_real = pd.DataFrame(columns=["Plodina", "Záhon", "Pozice", "Datum_Vysadby", "Ocekavana_Sklizen", "Posledni_Hnojeni", "Ucinnek_Hnojiva"])
 
@@ -54,25 +56,42 @@ def main():
     tab1, tab2, tab3, tab4 = st.tabs(["📝 Přehled výsadby", "🗺️ Mapa", "⚙️ Správa & Hnojení", "📂 Archiv"])
 
     with tab1:
-        # Ponecháváme kompletní texty o záhonech (Cuketové království atd.)
+        # --- ZÁHON 1: KOMPLETNÍ TEXT ---
         st.header("🏰 ZÁHON 1: Cuketové království")
-        st.markdown("| Období | Plodina | Poznámka k pěstování |\n| :--- | :--- | :--- |\n| Březen – Květen | Ředkvičky + Špenát | Vysévejte v březnu pod textilii. |")
-        
+        st.write("Tento záhon je zaměřen na rychlou jarní vitamínovou bombu a následně na hlavní letní úrodu.")
+        st.markdown("""
+        | Období | Plodina | Poznámka k pěstování |
+        | :--- | :--- | :--- |
+        | Březen – Květen | Ředkvičky + Jarní špenát | Vysévejte v polovině března. Přikryjte bílou netkanou textilií – v 500 m n. m. jim vytvoří mikroklima. |
+        | Konec května – Září | Tykev cuketa Tondo di Piacenza | Po sklizni ředkviček vysaďte sazenice. Do každé jamky lžičku Trichodermy. Nezapomeňte na PET lahve s Blumatem. |
+        | Září – Listopad | Polníček / Zimní špenát | Po cuketách záhon nevynechejte. Tyto plodiny vydrží mráz a v říjnu z nich máte skvělý salát. |
+        """)
+
+        # --- ZÁHON 2: KOMPLETNÍ TEXT ---
         st.header("🔄 ZÁHON 2: Česnekovo-fazolová rotace")
-        st.markdown("| Období | Plodina | Poznámka k pěstování |\n| :--- | :--- | :--- |\n| Listopad – Červenec | Zimní česnek | Sázíte na podzim, sklizeň v červenci. |")
+        st.write("Tento záhon využívá fakt, že česnek uvolní místo v červenci, což otevírá prostor pro 'druhou směnu' letní zeleniny.")
+        st.markdown("""
+        | Období | Plodina | Poznámka k pěstování |
+        | :--- | :--- | :--- |
+        | Listopad – Červenec | Zimní česnek | Sázíte na podzim. Přes zimu o něm nevíte, v červenci sklízíte vlastní palice. |
+        | Červenec – Září | Sazenice rajčat + Keříčkové fazole | Do prázdných míst po česneku dejte už vzrostlé sazenice rajčat a do volných řádků vysejte fazole. |
+        | Srpen – Říjen | Asijské saláty (Pak Choi / Mizuna) | Vysejte mezi fazole. Rostou raketově a nevadí jim chladnější zářijové noci v horách. |
+        """)
+
+        st.info("**Tipy pro úspěch v 500 m n. m.:** Po česneku prolijte půdu Razorminem. Blumat adaptéry u rajčat jsou nutnost!")
         
         st.divider()
         st.subheader("📊 Aktuální stav (Live data)")
         if not df_real.empty:
             df_display = df_real.copy()
-            # Formátování pro přehlednou tabulku
+            # Explicitní evropský formát pro tabulku
             for col in ['Datum_Vysadby', 'Ocekavana_Sklizen', 'Posledni_Hnojeni']:
                 if col in df_display.columns:
                     df_display[col] = df_display[col].dt.strftime('%d.%m.%Y').replace('NaT', '-')
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
     with tab2:
-        st.header("🗺️ Mapa")
+        st.header("🗺️ Mapa osázení")
         for bed in ["Záhon 1", "Záhon 2"]:
             with st.expander(bed, expanded=True):
                 for r in list("ABCDEF"):
@@ -95,7 +114,7 @@ def main():
             p_crop = c1.selectbox("Plodina", list(PLANT_DATABASE.keys()))
             p_bed = c2.selectbox("Záhon", ["Záhon 1", "Záhon 2"])
             p_pos = c3.selectbox("Pozice", POSITIONS)
-            # KLÍČOVÁ OPRAVA: Přidán parametr format="DD.MM.YYYY"
+            # Kalendář s evropským formátem
             p_date = st.date_input("Datum výsadby", datetime.now(), format="DD.MM.YYYY")
             
             if st.form_submit_button("Zasadit"):
@@ -132,7 +151,7 @@ def main():
             if not df_archive.empty:
                 for col in df_archive.columns:
                     if 'Datum' in col:
-                        df_archive[col] = pd.to_datetime(df_archive[col]).dt.strftime('%d.%m.%Y')
+                        df_archive[col] = pd.to_datetime(df_archive[col], dayfirst=True).dt.strftime('%d.%m.%Y')
                 st.dataframe(df_archive, use_container_width=True, hide_index=True)
         except:
             st.info("Archiv je prázdný.")
